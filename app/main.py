@@ -1,9 +1,11 @@
 # GPL-3.0-only
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .db import init_models, enable_sqlite_wal
-from .routers import tasks, categories, tags, relationships, attachments, views, notifications, config
-from .settings import settings_cache
+
+from app.db import init_models, enable_sqlite_wal
+from app.routers import tasks, categories, tags, relationships, attachments, views, notifications, config
+from app.settings import settings_cache
 
 app = FastAPI(title="Tasks Platform API", version="2.0.0-vibe")
 

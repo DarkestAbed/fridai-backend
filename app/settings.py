@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from .models import AppSettings
-from .db import SessionLocal
+from app.models import AppSettings
+from app.db import SessionLocal
 
 @dataclass
 class SettingsCache:

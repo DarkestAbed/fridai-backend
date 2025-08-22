@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..dependencies import get_db
-from ..models import TaskRelationship, Task, RelationshipType
-from ..schemas import RelationshipCreate, TaskOut
+from ..models import TaskRelationship
+from ..schemas import RelationshipCreate
 
 router = APIRouter()
 
