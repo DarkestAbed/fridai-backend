@@ -1,11 +1,14 @@
-# GPL-3.0-only
+# app/settings.py
+
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any, Dict, Optional
+
 from app.models import AppSettings
 from app.db import SessionLocal
+
 
 @dataclass
 class SettingsCache:
@@ -38,14 +41,14 @@ class SettingsCache:
             if own:
                 await session.close()
 
-    def to_dict(self):
-        return dict(
-            timezone=self.timezone,
-            theme=self.theme,
-            notifications_enabled=self.notifications_enabled,
-            near_due_hours=self.near_due_hours,
-            scheduler_interval_seconds=self.scheduler_interval_seconds,
-            apprise_urls=self.apprise_urls,
-        )
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "timezone": str(self.timezone),
+            "theme": str(self.theme),
+            "notifications_enabled": bool(self.notifications_enabled),
+            "near_due_hours": int(self.near_due_hours),
+            "scheduler_interval_seconds": int(self.scheduler_interval_seconds),
+            "apprise_urls": str(self.apprise_urls),
+        }
 
 settings_cache = SettingsCache()

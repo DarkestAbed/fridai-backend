@@ -1,11 +1,12 @@
 # app/routrs/tags.py
 
-from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from typing import List, Optional
+
 from app.dependencies import get_db
 from app.models import Tag, Task, StatusEnum
 from app.schemas import TagCreate, TagOut, TaskOut
@@ -53,7 +54,7 @@ async def tasks_by_tag(
     stmt = (
         select(Task)
         .join(Task.tags)
-        .where(Task.id == tag_id)
+        .where(Tag.id == tag_id)
         .options(selectinload(Task.tags))  # avoid N+1 when serializing
         .order_by(Task.due_at.asc().nulls_last())
     )

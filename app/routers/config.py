@@ -1,22 +1,30 @@
-# GPL-3.0-only
+# app/routers/config.py
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..dependencies import get_db
-from ..models import AppSettings
-from ..schemas import SettingsOut, SettingsPatch
-from ..settings import settings_cache
+
+from app.dependencies import get_db
+from app.models import AppSettings
+from app.schemas import SettingsOut, SettingsPatch
+from app.settings import settings_cache
+
 
 router = APIRouter()
+
 
 @router.get("", response_model=SettingsOut)
 async def get_config(db: AsyncSession = Depends(get_db)):
     await settings_cache.load(db)
     return SettingsOut(**settings_cache.to_dict())
 
+
 @router.patch("")
 async def patch_config(body: SettingsPatch, db: AsyncSession = Depends(get_db)):
-    row = (await db.execute(select(AppSettings).where(AppSettings.id==1))).scalar_one_or_none()
+    row = (
+        (await db.execute(select(AppSettings).where(AppSettings.id==1)))
+        .scalar_one_or_none()
+    )
     if not row:
         row = AppSettings(id=1)
         db.add(row)

@@ -1,11 +1,21 @@
-# GPL-3.0-only
+# app/main.py
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_models, enable_sqlite_wal
-from app.routers import tasks, categories, tags, relationships, attachments, views, notifications, config
+from app.routers import (
+    tasks,
+    categories,
+    tags,
+    relationships,
+    attachments,
+    views,
+    notifications,
+    config,
+)
 from app.settings import settings_cache
+
 
 app = FastAPI(title="Tasks Platform API", version="2.0.0-vibe")
 
@@ -17,11 +27,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 async def on_startup():
     await enable_sqlite_wal()
     await init_models()
     await settings_cache.load()
+
 
 # Routers
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
@@ -32,6 +44,7 @@ app.include_router(attachments.router, prefix="/api/tasks", tags=["attachments"]
 app.include_router(views.router, prefix="/api/views", tags=["views"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
+
 
 @app.get("/healthz")
 async def healthz():

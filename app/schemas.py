@@ -1,8 +1,8 @@
-# GPL-3.0-only
+# app/schemas.py
 
 from __future__ import annotations
 from pendulum import DateTime as PDateTime
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from typing import Optional, List
 
 from app.models import StatusEnum, RelationshipType
@@ -29,6 +29,14 @@ class TaskOut(ExtendedBase):
     due_at: Optional[PDateTime]
     category_id: Optional[int]
     tag_ids: List[int] = []
+
+    @model_validator(mode='before')
+    @classmethod
+    def extract_tag_ids(cls, data):
+        if hasattr(data, 'tags') and data.tags is not None:
+            data.tag_ids = [ tag.id for tag in data.tags ]
+        return data
+
     class Config:
         from_attributes = True
 
@@ -107,4 +115,9 @@ class SettingsOut(ExtendedBase):
 
 
 class SettingsPatch(ExtendedBase):
-    pass
+    timezone: str = "America/Santiago"
+    theme: str = "light"
+    notifications_enabled: bool = True
+    near_due_hours: int = 24
+    scheduler_interval_seconds: int = 60
+    apprise_urls: str = ""

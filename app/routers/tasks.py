@@ -39,14 +39,10 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
     db.add(t)
     await db.commit()
     await db.refresh(t)
-    return TaskOut(
-        id=t.id,
-        title=t.title,
-        description=t.description,
-        status=t.status,
-        due_at=t.due_at,
-        category_id=t.category_id, tag_ids=[ x.id for x in t.tags ]
-        )
+    # Ensure the tags relationship is loaded
+    await db.refresh(t, ["tags"])
+    # Use consistent model validation instead of manual construction
+    return TaskOut.model_validate(t, from_attributes=True)
 
 
 @router.delete("/{task_id}")
@@ -113,6 +109,7 @@ async def set_due(
     await db.refresh(t)
     return TaskOut.model_validate(t, from_attributes=True)
 
+
 @router.post("/{task_id}/tags")
 async def add_tags(
     task_id: int,
@@ -138,6 +135,7 @@ async def add_tags(
         "ok": True,
         "tag_ids": [ x.id for x in t.tags ],
     }
+
 
 @router.get("", response_model=List[TaskOut])
 async def list_tasks(
