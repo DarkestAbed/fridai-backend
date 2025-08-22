@@ -25,14 +25,6 @@ router = APIRouter()
 
 @router.post("", response_model=TaskOut)
 async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
-    # Convert datetime to Pendulum for database storage
-    due_at_pendulum = datetime_to_pendulum(body.due_at) if body.due_at else None
-    t = Task(
-        title=body.title,
-        description=body.description,
-        due_at=due_at_pendulum,
-        category_id=body.category_id,
-    )
     """Create a new task with comprehensive validation and error handling."""
     # Input validation
     if not body.title or not body.title.strip():
@@ -48,7 +40,7 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
             if not category:
                 raise HTTPException(
                     400,
-                    f"Category with ID {body.category_id} does not exist"
+                    f"Category with ID {body.category_id} does not exist",
                 )
         # Validate tags exist if provided
         valid_tags = []
@@ -60,15 +52,21 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
             missing_tag_ids = set(body.tag_ids) - found_tag_ids
             if missing_tag_ids:
                 raise HTTPException(
-                    400, 
+                    400,
                     f"Tags with IDs {list(missing_tag_ids)} do not exist"
                 )
-            valid_tags = list(tags)
+            valid_tags = list(tags)        
+        # Convert datetime to Pendulum for database storage
+        due_at_pendulum = (
+            datetime_to_pendulum(body.due_at)
+            if body.due_at
+            else None
+        )
         # Create task
         t = Task(
             title=body.title.strip(),
             description=body.description.strip() if body.description else None,
-            due_at=body.due_at,
+            due_at=due_at_pendulum,  # Use converted Pendulum datetime
             category_id=body.category_id,
         )
         if valid_tags:
@@ -262,15 +260,12 @@ async def next_window(
     db: AsyncSession = Depends(get_db),
 ):
     now_ts = now("America/Santiago")
-    if days is None:
-        if hours is None:
-            return HTTPException(
-                status_code=401,
-                detail="Missing time differences",
-            )
+    if days is None and hours is None:  # Fixed condition
+        raise HTTPException(400, "Must specify either days or hours")  # Fixed status code
+    if not isinstance(days, int):
+        raise HTTPException(400, "Must specify either days or hours") 
     horizon = (
-        now_ts
-        .add(hours=hours) if hours is not None else now_ts.add(days=days)   # type: ignore
+        now_ts.add(hours=hours) if hours is not None else now_ts.add(days=days)
     )
     stmt = (
         select(Task)
