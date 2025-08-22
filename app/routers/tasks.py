@@ -4,11 +4,12 @@ from __future__ import annotations
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pendulum import now
-from sqlalchemy import select, and_, or_
+from sqlalchemy import func, select, and_, or_
+from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
-from app.models import Task, Tag, StatusEnum
+from app.models import Category, Task, Tag, StatusEnum
 from app.schemas import (
     TaskCreate,
     TaskOut,
@@ -29,35 +30,89 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
         due_at=body.due_at,
         category_id=body.category_id,
     )
-    if body.tag_ids:
-        tags = (
-            (await db.execute(select(Tag).where(Tag.id.in_(body.tag_ids))))
-            .scalars()
-            .all()
+    """Create a new task with comprehensive validation and error handling."""
+    # Input validation
+    if not body.title or not body.title.strip():
+        raise HTTPException(400, "Task title cannot be empty")
+    if len(body.title.strip()) > 200:
+        raise HTTPException(400, "Task title too long (max 200 characters)")
+    try:
+        # Validate category exists if provided
+        if body.category_id:
+            category = (await db.execute(
+                select(Category).where(Category.id == body.category_id)
+            )).scalar_one_or_none()
+            if not category:
+                raise HTTPException(
+                    400,
+                    f"Category with ID {body.category_id} does not exist"
+                )
+        # Validate tags exist if provided
+        valid_tags = []
+        if body.tag_ids:
+            tags = (await db.execute(
+                select(Tag).where(Tag.id.in_(body.tag_ids))
+            )).scalars().all()
+            found_tag_ids = {tag.id for tag in tags}
+            missing_tag_ids = set(body.tag_ids) - found_tag_ids
+            if missing_tag_ids:
+                raise HTTPException(
+                    400, 
+                    f"Tags with IDs {list(missing_tag_ids)} do not exist"
+                )
+            valid_tags = list(tags)
+        # Create task
+        t = Task(
+            title=body.title.strip(),
+            description=body.description.strip() if body.description else None,
+            due_at=body.due_at,
+            category_id=body.category_id,
         )
-        t.tags = list(tags)
-    db.add(t)
-    await db.commit()
-    await db.refresh(t)
-    # Ensure the tags relationship is loaded
-    await db.refresh(t, ["tags"])
-    # Use consistent model validation instead of manual construction
-    return TaskOut.model_validate(t, from_attributes=True)
+        if valid_tags:
+            t.tags = valid_tags
+        db.add(t)
+        await db.commit()
+        # Ensure relationships are loaded for serialization
+        await db.refresh(t, ["tags", "category"])
+        return TaskOut.model_validate(t, from_attributes=True)
+    except HTTPException:
+        # Re-raise validation errors
+        await db.rollback()
+        raise
+    except IntegrityError as e:
+        await db.rollback()
+        error_msg = str(e.orig)
+        if "FOREIGN KEY constraint failed" in error_msg:
+            raise HTTPException(400, "Invalid category or tag reference")
+        else:
+            raise HTTPException(400, "Data validation error")
+    except DatabaseError as e:
+        await db.rollback()
+        raise HTTPException(500, "Database operation failed")
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(500, "Internal server error")
 
 
 @router.delete("/{task_id}")
 async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
-    t = (
-        (await db.execute(select(Task).where(Task.id==task_id)))
-        .scalar_one_or_none()
-    )
-    if not t:
-        raise HTTPException(404, "Task not found")
-    await db.delete(t)
-    await db.commit()
-    return {
-        "ok": True,
-    }
+    """Delete a task with proper error handling."""
+    try:
+        t = (
+            (await db.execute(select(Task).where(Task.id == task_id)))
+            .scalar_one_or_none()
+        )
+        if not t:
+            raise HTTPException(404, "Task not found")
+        await db.delete(t)
+        await db.commit()
+        return {"ok": True, "message": "Task deleted successfully"}
+    except HTTPException:
+        await db.rollback()
+        raise
+    except DatabaseError as e:
+        await db.rollback()
+        raise HTTPException(500, "Failed to delete task")
 
 
 @router.post("/{task_id}/complete", response_model=TaskOut)
@@ -152,9 +207,12 @@ async def list_tasks(
     )
     filters = []
     if q:
-        pattern = f"%{q}%"
+        pattern = f"%{q.lower()}%"
         filters.append(
-            or_(Task.title.like(pattern), Task.description.like(pattern))
+            or_(
+                func.lower(Task.title).like(pattern),
+                func.lower(Task.description).like(pattern),
+            )
         )
     if overdue_only:
         now_ts = now("America/Santiago")

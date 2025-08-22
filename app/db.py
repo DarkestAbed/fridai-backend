@@ -1,6 +1,7 @@
 # app/db.py
 
 from os import getenv
+from pathlib import Path
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     async_sessionmaker,
@@ -14,7 +15,18 @@ from app import models
 
 
 DATABASE_URL = getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/app.db")
-engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True, future=True)
+
+if DATABASE_URL.startswith("sqlite"):
+    db_path = Path(DATABASE_URL.replace("sqlite+aiosqlite:///", ""))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    future=True,
+)
+
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

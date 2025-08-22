@@ -2,8 +2,10 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError, DatabaseError
 
 from app.db import init_models, enable_sqlite_wal
+from app.exceptions import DatabaseExceptionHandler
 from app.routers import (
     tasks,
     categories,
@@ -18,6 +20,10 @@ from app.settings import settings_cache
 
 
 app = FastAPI(title="Tasks Platform API", version="2.0.0-vibe")
+
+# Register exception handlers
+app.add_exception_handler(IntegrityError, DatabaseExceptionHandler.integrity_error_handler)
+app.add_exception_handler(DatabaseError, DatabaseExceptionHandler.database_error_handler)
 
 app.add_middleware(
     CORSMiddleware,
