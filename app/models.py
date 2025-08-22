@@ -57,34 +57,6 @@ class Tag(Base):
     )
 
 
-class TaskRelationship(Base):
-    __tablename__ = "task_relationships"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    task_id: Mapped[int] = mapped_column(
-        ForeignKey("tasks.id", ondelete="CASCADE"),
-        index=True,
-    )
-    related_task_id: Mapped[int] = mapped_column(
-        ForeignKey("tasks.id", ondelete="CASCADE"),
-        index=True,
-    )
-    rel_type: Mapped[RelationshipType] = mapped_column(
-        SAEnum(RelationshipType),
-        default=RelationshipType.generic,
-    )
-    # Add relationships
-    source_task: Mapped["Task"] = relationship(
-        "Task", 
-        foreign_keys=[task_id],
-        back_populates="outgoing_relationships"
-    )
-    target_task: Mapped["Task"] = relationship(
-        "Task", 
-        foreign_keys=[related_task_id],
-        back_populates="incoming_relationships"
-    )
-
-
 class Task(Base):
     __tablename__ = "tasks"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -121,17 +93,6 @@ class Task(Base):
         back_populates="task",
         cascade="all, delete-orphan",
     )
-    outgoing_relationships: Mapped[List["TaskRelationship"]] = relationship(
-        "TaskRelationship",
-        foreign_keys=[TaskRelationship.task_id],
-        back_populates="source_task",
-        cascade="all, delete-orphan"
-    )
-    incoming_relationships: Mapped[List["TaskRelationship"]] = relationship(
-        "TaskRelationship",
-        foreign_keys=[TaskRelationship.related_task_id],
-        back_populates="target_task"
-    )
 
 
 class Attachment(Base):
@@ -149,6 +110,23 @@ class Attachment(Base):
         nullable=False,
     )
     task: Mapped[Task] = relationship(back_populates="attachments")
+
+
+class TaskRelationship(Base):
+    __tablename__ = "task_relationships"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        index=True,
+    )
+    related_task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        index=True,
+    )
+    rel_type: Mapped[RelationshipType] = mapped_column(
+        SAEnum(RelationshipType),
+        default=RelationshipType.generic,
+    )
 
 
 class NotificationLog(Base):

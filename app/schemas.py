@@ -1,7 +1,7 @@
 # app/schemas.py
 
 from __future__ import annotations
-from pendulum import DateTime as PDateTime
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, model_validator
 from typing import Optional, List
 
@@ -16,7 +16,7 @@ class ExtendedBase(BaseModel):
 class TaskCreate(ExtendedBase):
     title: str
     description: Optional[str] = None
-    due_at: Optional[PDateTime] = None
+    due_at: Optional[datetime] = None
     category_id: Optional[int] = None
     tag_ids: Optional[List[int]] = None
 
@@ -26,7 +26,7 @@ class TaskOut(ExtendedBase):
     title: str
     description: Optional[str]
     status: StatusEnum
-    due_at: Optional[PDateTime]
+    due_at: Optional[datetime]
     category_id: Optional[int]
     tag_ids: List[int] = []
 
@@ -46,7 +46,7 @@ class TaskPatchDescription(ExtendedBase):
 
 
 class TaskPatchDue(ExtendedBase):
-    due_at: Optional[PDateTime] = None
+    due_at: Optional[datetime] = None
 
 
 class AddTags(ExtendedBase):
@@ -88,7 +88,7 @@ class AttachmentOut(ExtendedBase):
     id: int
     filename: str
     url: str
-    created_at: PDateTime
+    created_at: datetime
     class Config:
         from_attributes = True
 

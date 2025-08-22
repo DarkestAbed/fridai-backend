@@ -2,6 +2,9 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
+from json import JSONEncoder
+from pendulum import DateTime
 from sqlalchemy.exc import IntegrityError, DatabaseError
 
 from app.db import init_models, enable_sqlite_wal
@@ -17,6 +20,14 @@ from app.routers import (
     config,
 )
 from app.settings import settings_cache
+
+
+class CustomJSONEncoder(JSONEncoder):
+    """Custom JSON encoder to handle Pendulum DateTime objects."""
+    def default(self, o):
+        if isinstance(o, DateTime):
+            return o.isoformat()
+        return super().default(o)
 
 
 app = FastAPI(title="Tasks Platform API", version="2.0.0-vibe")
@@ -50,6 +61,11 @@ app.include_router(attachments.router, prefix="/api/tasks", tags=["attachments"]
 app.include_router(views.router, prefix="/api/views", tags=["views"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
+
+
+@app.get("/")
+async def hello():
+    return {"msg": "Hello, friend. Hello, friend?"}
 
 
 @app.get("/healthz")

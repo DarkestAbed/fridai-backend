@@ -17,6 +17,7 @@ from app.schemas import (
     TaskPatchDue,
     AddTags,
 )
+from app.utils.datetime_converter import datetime_to_pendulum
 
 
 router = APIRouter()
@@ -24,10 +25,12 @@ router = APIRouter()
 
 @router.post("", response_model=TaskOut)
 async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
+    # Convert datetime to Pendulum for database storage
+    due_at_pendulum = datetime_to_pendulum(body.due_at) if body.due_at else None
     t = Task(
         title=body.title,
         description=body.description,
-        due_at=body.due_at,
+        due_at=due_at_pendulum,
         category_id=body.category_id,
     )
     """Create a new task with comprehensive validation and error handling."""
@@ -159,7 +162,8 @@ async def set_due(
     )
     if not t:
         raise HTTPException(404, "Task not found")
-    t.due_at = body.due_at
+    # Convert datetime to Pendulum for database storage
+    t.due_at = datetime_to_pendulum(body.due_at) if body.due_at else None
     await db.commit()
     await db.refresh(t)
     return TaskOut.model_validate(t, from_attributes=True)
