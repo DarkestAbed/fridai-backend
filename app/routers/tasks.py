@@ -17,7 +17,7 @@ from app.schemas import (
     TaskPatchDue,
     AddTags,
 )
-from app.utils.datetime_converter import datetime_to_pendulum
+from app.utils.datetime_converter import datetime_to_pendulum, verify_timestamp
 
 
 router = APIRouter()
@@ -118,13 +118,19 @@ async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/complete", response_model=TaskOut)
 async def complete_task(task_id: int, db: AsyncSession = Depends(get_db)):
+    """Complete/un-complete task"""
     t = (
         (await db.execute(select(Task).where(Task.id==task_id)))
         .scalar_one_or_none()
     )
     if not t:
         raise HTTPException(404, "Task not found")
-    t.status = StatusEnum.completed
+    if t.status == StatusEnum.pending:
+        t.status = StatusEnum.completed
+    elif t.status == StatusEnum.completed:
+        t.status = StatusEnum.pending
+    else:
+        raise HTTPException(404, "Task status not found")
     await db.commit()
     await db.refresh(t)
     return TaskOut.model_validate(t, from_attributes=True)
@@ -154,6 +160,7 @@ async def set_due(
     body: TaskPatchDue,
     db: AsyncSession = Depends(get_db),
 ):
+    """Set task due date, or nullify it"""
     t = (
         (await db.execute(select(Task).where(Task.id==task_id)))
         .scalar_one_or_none()
@@ -161,9 +168,16 @@ async def set_due(
     if not t:
         raise HTTPException(404, "Task not found")
     # Convert datetime to Pendulum for database storage
-    t.due_at = datetime_to_pendulum(body.due_at) if body.due_at else None
+    ## check if input timestamp is valid
+    check_ts_fg: bool = verify_timestamp(str(body.due_at))
+    ## proper due date update
+    if check_ts_fg:
+        t.due_at = datetime_to_pendulum(body.due_at) if body.due_at else None
+    else:
+        raise HTTPException(400, "Wrong input timestamp value")
     await db.commit()
     await db.refresh(t)
+    # print(f"{t = }\n{TaskOut.model_validate(t, from_attributes=True) = }")
     return TaskOut.model_validate(t, from_attributes=True)
 
 
@@ -184,6 +198,7 @@ async def add_tags(
         .scalars()
         .all()
     )
+    print(f"{tags = }")
     for tg in tags:
         if tg not in t.tags:
             t.tags.append(tg)

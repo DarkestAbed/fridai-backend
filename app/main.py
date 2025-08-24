@@ -6,6 +6,7 @@ from fastapi.encoders import jsonable_encoder
 from json import JSONEncoder
 from pendulum import DateTime
 from sqlalchemy.exc import IntegrityError, DatabaseError
+from uvicorn import run as server_run
 
 from app.db import init_models, enable_sqlite_wal
 from app.exceptions import DatabaseExceptionHandler
@@ -71,3 +72,15 @@ async def hello():
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "version": "2.0.0-vibe"}
+
+
+if __name__ == "__main__":
+    # server_run(
+    #     "app.main:app",
+    #     host="0.0.0.0",
+    #     port=8000,
+    #     debug=True,
+    # )
+    pass
+else:
+    pass

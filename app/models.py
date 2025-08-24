@@ -44,7 +44,10 @@ class Category(Base):
     __tablename__ = "categories"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    tasks: Mapped[List["Task"]] = relationship(back_populates="category")
+    tasks: Mapped[List["Task"]] = relationship(
+        back_populates="category",
+        lazy="selectin",
+    )
 
 
 class Tag(Base):
@@ -54,6 +57,7 @@ class Tag(Base):
     tasks: Mapped[List["Task"]] = relationship(
         secondary="task_tags",
         back_populates="tags",
+        lazy="selectin",
     )
 
 
@@ -84,14 +88,19 @@ class Task(Base):
     category_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("categories.id", ondelete="SET NULL")
     )
-    category: Mapped[Optional[Category]] = relationship(back_populates="tasks")
+    category: Mapped[Optional[Category]] = relationship(
+        back_populates="tasks",
+        lazy="selectin",
+    )
     tags: Mapped[List[Tag]] = relationship(
         secondary="task_tags",
         back_populates="tasks",
+        lazy="selectin",
     )
     attachments: Mapped[List["Attachment"]] = relationship(
         back_populates="task",
         cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
 
@@ -109,7 +118,10 @@ class Attachment(Base):
         default=lambda: now("America/Santiago"),
         nullable=False,
     )
-    task: Mapped[Task] = relationship(back_populates="attachments")
+    task: Mapped[Task] = relationship(
+        back_populates="attachments",
+        lazy="selectin",
+    )
 
 
 class TaskRelationship(Base):
