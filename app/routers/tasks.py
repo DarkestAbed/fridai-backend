@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pendulum import now
 from sqlalchemy import func, select, and_, or_
 from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_db
 from app.models import Category, Task, Tag, StatusEnum
@@ -95,25 +96,70 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(500, "Internal server error")
 
 
-@router.delete("/{task_id}")
-async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete a task with proper error handling."""
+@router.delete("/{task_id}", status_code=status.HTTP_200_OK)
+async def delete_task(
+    task_id: int,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete a task with proper validation and cascade handling.
+    """
     try:
-        t = (
-            (await db.execute(select(Task).where(Task.id == task_id)))
-            .scalar_one_or_none()
+        # Fetch task with all relationships for response
+        stmt = (
+            select(Task)
+            .where(Task.id == task_id)
+            .options(
+                selectinload(Task.tags),
+                selectinload(Task.category),
+                selectinload(Task.attachments)
+            )
         )
+        t = (await db.execute(stmt)).scalar_one_or_none()
         if not t:
-            raise HTTPException(404, "Task not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task with ID {task_id} not found"
+            )
+        # Safety check: only delete completed tasks unless forced
+        if not force and t.status != StatusEnum.completed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete uncompleted task. Mark as completed first or use force=true"
+            )
+        # Store task info before deletion for response
+        task_info = {
+            "id": t.id,
+            "title": t.title,
+            "status": t.status.value,
+            "had_attachments": len(t.attachments) > 0,
+            "attachment_count": len(t.attachments),
+            "had_tags": len(t.tags) > 0,
+            "tag_count": len(t.tags)
+        }
+        # Delete the task (cascades will handle relationships and attachments)
         await db.delete(t)
         await db.commit()
-        return {"ok": True, "message": "Task deleted successfully"}
+        return {
+            "message": "Task deleted successfully",
+            "deleted_task": task_info
+        }
     except HTTPException:
         await db.rollback()
         raise
     except DatabaseError as e:
         await db.rollback()
-        raise HTTPException(500, "Failed to delete task")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete task due to database error"
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while deleting the task"
+        )
 
 
 @router.post("/{task_id}/complete", response_model=TaskOut)
