@@ -1,14 +1,14 @@
 # app/routrs/tags.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
 from app.dependencies import get_db
-from app.models import Tag, Task, StatusEnum
+from app.models import Tag, Task, TaskTags, StatusEnum
 from app.schemas import TagCreate, TagOut, TaskOut
 
 
@@ -39,7 +39,6 @@ async def list_tags(
     stmt = select(Tag).order_by(Tag.name.asc())
     if q:
         # portable case-insensitive search
-        from sqlalchemy import func
         stmt = stmt.where(func.lower(Tag.name).like(f"%{q.lower()}%"))
     rows = (await db.execute(stmt)).scalars().all()
     return [ TagOut.model_validate(x, from_attributes=True) for x in rows ]
@@ -62,3 +61,82 @@ async def tasks_by_tag(
         stmt = stmt.where(Task.status != StatusEnum.completed)
     rows = (await db.execute(stmt)).scalars().all()
     return [ TaskOut.model_validate(x, from_attributes=True) for x in rows ]
+
+
+@router.delete("/{tag_id}", status_code=status.HTTP_200_OK)
+async def delete_tag(
+    tag_id: int,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete a tag with proper validation.
+    """
+    try:
+        # Fetch the tag with tasks relationship
+        tag = (
+            await db.execute(
+                select(Tag)
+                .where(Tag.id == tag_id)
+                .options(selectinload(Tag.tasks))
+            )
+        ).scalar_one_or_none()
+        if not tag:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tag with ID {tag_id} not found"
+            )
+        # Count associated tasks
+        task_count_stmt = (
+            select(func.count(TaskTags.task_id))
+            .where(TaskTags.tag_id == tag_id)
+        )
+        task_count = (await db.execute(task_count_stmt)).scalar() or 0
+        # Check pending tasks with this tag
+        pending_tasks_stmt = (
+            select(func.count(Task.id))
+            .join(Task.tags)
+            .where(Tag.id == tag_id)
+            .where(Task.status == StatusEnum.pending)
+        )
+        pending_count = (await db.execute(pending_tasks_stmt)).scalar() or 0
+        # Safety check: prevent deletion if tag has tasks and force not specified
+        if task_count > 0 and not force:
+            details: str = (
+                f"Tag is associated with {task_count} tasks ({pending_count} pending). "
+                f"Use force=true to remove tag from all tasks"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=details
+            )
+        # Store tag info for response
+        tag_info = {
+            "id": tag.id,
+            "name": tag.name,
+            "task_count": task_count,
+            "pending_task_count": pending_count,
+            "removed_from_tasks": task_count if force else 0
+        }
+        # Delete the tag (cascade will handle TaskTags relationships)
+        await db.delete(tag)
+        await db.commit()
+        return {
+            "message": "Tag deleted successfully",
+            "deleted_tag": tag_info
+        }
+    except HTTPException:
+        await db.rollback()
+        raise
+    except DatabaseError as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete tag due to database error"
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while deleting the tag"
+        )

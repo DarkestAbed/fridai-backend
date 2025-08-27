@@ -1,9 +1,10 @@
 # app/routers/categories.py
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
 from app.dependencies import get_db
@@ -88,3 +89,102 @@ async def tasks_by_category(
         stmt = stmt.where(Task.status != StatusEnum.completed)
     rows = (await db.execute(stmt)).scalars().all()
     return [ TaskOut.model_validate(x, from_attributes=True) for x in rows ]
+
+
+@router.delete("/{category_id}", status_code=status.HTTP_200_OK)
+async def delete_category(
+    category_id: int,
+    reassign_to: Optional[int] = None,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete a category with proper validation and task handling.
+    """
+    try:
+        # Fetch the category to delete
+        category = (
+            await db.execute(
+                select(Category)
+                .where(Category.id == category_id)
+                .options(selectinload(Category.tasks))
+            )
+        ).scalar_one_or_none()
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category with ID {category_id} not found"
+            )
+        # Count associated tasks
+        task_count_stmt = (
+            select(func.count(Task.id))
+            .where(Task.category_id == category_id)
+        )
+        task_count = (await db.execute(task_count_stmt)).scalar() or 0
+        # Check if category has tasks and no resolution strategy provided
+        if task_count > 0 and not reassign_to and not force:
+            details: str = (
+                f"Category has {task_count} associated tasks. "
+                f"Specify reassign_to category ID or use force=true to set tasks category to NULL"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=details,
+            )
+        # If reassigning, validate the target category exists and is different
+        if reassign_to is not None:
+            if reassign_to == category_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot reassign to the same category being deleted"
+                )
+                
+            target_category = (
+                await db.execute(
+                    select(Category).where(Category.id == reassign_to)
+                )
+            ).scalar_one_or_none()
+            
+            if not target_category:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Target category with ID {reassign_to} not found"
+                )
+            # Reassign all tasks to the target category
+            if task_count > 0:
+                update_stmt = (
+                    select(Task).where(Task.category_id == category_id)
+                )
+                tasks_to_update = (await db.execute(update_stmt)).scalars().all()
+                for task in tasks_to_update:
+                    task.category_id = reassign_to
+        # Store category info for response
+        category_info = {
+            "id": category.id,
+            "name": category.name,
+            "task_count": task_count,
+            "tasks_reassigned_to": reassign_to if reassign_to else None,
+            "tasks_set_to_null": task_count > 0 and force and not reassign_to
+        }
+        # Delete the category (tasks will be set to NULL due to SET NULL constraint if force=true)
+        await db.delete(category)
+        await db.commit()
+        return {
+            "message": "Category deleted successfully",
+            "deleted_category": category_info
+        }
+    except HTTPException:
+        await db.rollback()
+        raise
+    except DatabaseError as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete category due to database error"
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while deleting the category"
+        )
