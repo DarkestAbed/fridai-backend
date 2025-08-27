@@ -277,15 +277,20 @@ async def next_window(
     now_ts = now("America/Santiago")
     if days is None and hours is None:  # Fixed condition
         raise HTTPException(400, "Must specify either days or hours")  # Fixed status code
-    if not isinstance(days, int):
-        raise HTTPException(400, "Must specify either days or hours") 
-    horizon = (
-        now_ts.add(hours=hours) if hours is not None else now_ts.add(days=days)
-    )
+    # Calculate horizon based on provided parameters
+    if hours is not None:
+        horizon = now_ts.add(hours=hours)
+    elif days is not None:
+        horizon = now_ts.add(days=days)
+    else:
+        # This shouldn't happen, but handle it gracefully
+        horizon = now_ts.add(hours=48)  # Default fallback
+    # exec
     stmt = (
         select(Task)
         .where(Task.due_at.is_not(None))
         .where(Task.due_at <= horizon)
+        .where(Task.status != StatusEnum.completed)  # Don't show completed tasks
         .order_by(Task.due_at.asc())
     )
     rows = (await db.execute(stmt)).scalars().all()
