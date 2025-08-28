@@ -1,7 +1,7 @@
-name: Deploy Images to GHCR
+name: Deploy backend image to GHCR
 
-env:
-  DOTNET_VERSION: '6.0.x'
+# env:
+#   DOTNET_VERSION: '6.0.x'
 
 on:
   push:
@@ -10,23 +10,35 @@ on:
   workflow_dispatch:
 
 jobs:
-      push-store-image:
+    push-store-image:
         runs-on: ubuntu-latest
         defaults:
-          run:
-            working-directory: '.'
+            run:
+                working-directory: '.'
         steps:
-          - name: 'Checkout GitHub Action'
-            uses: actions/checkout@main
+            - name: 'Checkout GitHub Action'
+              uses: actions/checkout@main
 
-          - name: 'Login to GitHub Container Registry'
-            uses: docker/login-action@v1
-            with:
-              registry: ghcr.io
-              username: ${{github.actor}}
-              password: ${{secrets.GITHUB_TOKEN}}
+            - name: 'Login to GitHub Container Registry'
+              uses: docker/login-action@v1
+              with:
+                registry: ghcr.io
+                username: ${{github.actor}}
+                password: ${{secrets.GITHUB_TOKEN}}
+            
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v4
+              with:
+                context: .
+                file: ./Dockerfile
+                push: true
+                tags: |
+                    ghcr.io/darkestabed/nyx-fds:latest
+                # cache-from: type=local,src=/tmp/.buildx-cache
+                # cache-to: type=local,dest=/tmp/.buildx-cache
+                # outputs: type=oci,dest=/tmp/image.tar
 
-          - name: 'Build Inventory Image'
-            run: |
-              docker build . --tag ghcr.io/darkestabed/fridai-backend:latest
-              docker push ghcr.io/darkestabed/fridai-backend:latest
+            # - name: 'Build Inventory Image'
+            #   run: |
+            #     docker build . --tag ghcr.io/darkestabed/fridai-backend:latest
+            #     docker push ghcr.io/darkestabed/fridai-backend:latest
