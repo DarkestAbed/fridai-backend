@@ -1,13 +1,8 @@
 # app/exceptions.py - Create custom exception handlers
 
-import logging
-
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, DatabaseError
-
-
-logger = logging.getLogger(__name__)
 
 
 class DatabaseExceptionHandler:
@@ -49,7 +44,6 @@ class DatabaseExceptionHandler:
                 content={"detail": "Required field is missing"}
             )
         # Generic integrity error
-        logger.error(f"Integrity error: {error_msg}")
         return JSONResponse(
             status_code=400,
             content={"detail": "Data validation error"}
@@ -58,7 +52,6 @@ class DatabaseExceptionHandler:
     @staticmethod
     async def database_error_handler(request: Request, exc: DatabaseError) -> JSONResponse:
         """Handle general database errors."""
-        logger.error(f"Database error: {str(exc)}")
         return JSONResponse(
             status_code=500,
             content={"detail": "Database operation failed"}

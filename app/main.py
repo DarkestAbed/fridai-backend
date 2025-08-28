@@ -1,12 +1,11 @@
 # app/main.py
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.encoders import jsonable_encoder
 from json import JSONEncoder
 from pendulum import DateTime
 from sqlalchemy.exc import IntegrityError, DatabaseError
-from uvicorn import run as server_run
 
 from app.db import init_models, enable_sqlite_wal
 from app.exceptions import DatabaseExceptionHandler
@@ -31,11 +30,26 @@ class CustomJSONEncoder(JSONEncoder):
         return super().default(o)
 
 
-app = FastAPI(title="Tasks Platform API", version="2.0.0-vibe")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await enable_sqlite_wal()
+    await init_models()
+    await settings_cache.load()
+    yield
+    # Shutdown (add any cleanup code here if needed)
+    ...
+
+
+app = FastAPI(
+    title="Tasks Platform API",
+    version="2.0.0-vibe",
+    lifespan=lifespan,
+)
 
 # Register exception handlers
-app.add_exception_handler(IntegrityError, DatabaseExceptionHandler.integrity_error_handler)
-app.add_exception_handler(DatabaseError, DatabaseExceptionHandler.database_error_handler)
+app.add_exception_handler(IntegrityError, DatabaseExceptionHandler.integrity_error_handler)     # type: ignore
+app.add_exception_handler(DatabaseError, DatabaseExceptionHandler.database_error_handler)       # type: ignore
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,13 +58,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def on_startup():
-    await enable_sqlite_wal()
-    await init_models()
-    await settings_cache.load()
 
 
 # Routers
@@ -75,12 +82,6 @@ async def healthz():
 
 
 if __name__ == "__main__":
-    # server_run(
-    #     "app.main:app",
-    #     host="0.0.0.0",
-    #     port=8000,
-    #     debug=True,
-    # )
     pass
 else:
     pass
