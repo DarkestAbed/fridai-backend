@@ -1,8 +1,5 @@
 name: Deploy backend image to GHCR
 
-# env:
-#   DOTNET_VERSION: '6.0.x'
-
 on:
   push:
     branches:
@@ -39,4 +36,4 @@ jobs:
                 file: ./Dockerfile
                 push: true
                 tags: |
-                    ghcr.io/darkestabed/nyx-fds:latest
+                    ghcr.io/darkestabed/fridai-backend:latest
