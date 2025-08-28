@@ -15,6 +15,12 @@ jobs:
         defaults:
             run:
                 working-directory: '.'
+        permissions:
+            contents: read
+            packages: write
+            attestations: write
+            id-token: write
+
         steps:
             - name: 'Checkout GitHub Action'
               uses: actions/checkout@main
@@ -25,7 +31,7 @@ jobs:
                 registry: ghcr.io
                 username: ${{github.actor}}
                 password: ${{secrets.GITHUB_TOKEN}}
-            
+
             - name: Build and push Docker image
               uses: docker/build-push-action@v4
               with:
@@ -34,11 +40,3 @@ jobs:
                 push: true
                 tags: |
                     ghcr.io/darkestabed/nyx-fds:latest
-                # cache-from: type=local,src=/tmp/.buildx-cache
-                # cache-to: type=local,dest=/tmp/.buildx-cache
-                # outputs: type=oci,dest=/tmp/image.tar
-
-            # - name: 'Build Inventory Image'
-            #   run: |
-            #     docker build . --tag ghcr.io/darkestabed/fridai-backend:latest
-            #     docker push ghcr.io/darkestabed/fridai-backend:latest
