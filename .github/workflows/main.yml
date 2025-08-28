@@ -28,5 +28,5 @@ jobs:
 
           - name: 'Build Inventory Image'
             run: |
-              docker build . --tag ghcr.io/DarkestAbed/fridai-backend:latest
+              docker build . --tag ghcr.io/darkestabed/fridai-backend:latest
               docker push ghcr.io/DarkestAbed/fridai-backend:latest
