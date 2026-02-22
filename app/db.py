@@ -2,6 +2,7 @@
 
 from os import getenv
 from pathlib import Path
+from loguru import logger
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     async_sessionmaker,
@@ -40,9 +41,11 @@ async def init_models():
     from app import models
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+    logger.info("Database tables initialized")
 
 
 async def enable_sqlite_wal():
     if DATABASE_URL.startswith("sqlite"):
         async with engine.begin() as conn:
             await conn.execute(text("PRAGMA journal_mode=WAL;"))
+        logger.info("SQLite WAL mode enabled")

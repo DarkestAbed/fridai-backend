@@ -17,7 +17,8 @@ class SettingsCache:
     notifications_enabled: bool = True
     near_due_hours: int = 24
     scheduler_interval_seconds: int = 60
-    apprise_urls: str = ""
+    ntfy_topics: str = ""
+    language: str = "en"
 
     async def load(self, session: Optional[AsyncSession] = None):
         own = False
@@ -36,7 +37,8 @@ class SettingsCache:
             self.notifications_enabled = obj.notifications_enabled
             self.near_due_hours = obj.near_due_hours
             self.scheduler_interval_seconds = obj.scheduler_interval_seconds
-            self.apprise_urls = obj.apprise_urls
+            self.ntfy_topics = obj.ntfy_topics
+            self.language = obj.language
         finally:
             if own:
                 await session.close()
@@ -48,7 +50,8 @@ class SettingsCache:
             "notifications_enabled": bool(self.notifications_enabled),
             "near_due_hours": int(self.near_due_hours),
             "scheduler_interval_seconds": int(self.scheduler_interval_seconds),
-            "apprise_urls": str(self.apprise_urls),
+            "ntfy_topics": str(self.ntfy_topics),
+            "language": str(self.language),
         }
 
 settings_cache = SettingsCache()

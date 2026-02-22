@@ -1,8 +1,7 @@
 # app/routers/tasks.py
 
-from __future__ import annotations
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pendulum import now
 from sqlalchemy import func, select, and_, or_
 from sqlalchemy.exc import IntegrityError, DatabaseError
@@ -10,10 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_db
+from app.limiter import limiter
+from app.settings import settings_cache
 from app.models import Category, Task, Tag, StatusEnum
 from app.schemas import (
     TaskCreate,
     TaskOut,
+    TaskPatch,
     TaskPatchDescription,
     TaskPatchDue,
     AddTags,
@@ -25,7 +27,8 @@ router = APIRouter()
 
 
 @router.post("", response_model=TaskOut)
-async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def create_task(request: Request, body: TaskCreate, db: AsyncSession = Depends(get_db)):
     """Create a new task with comprehensive validation and error handling."""
     # Input validation
     if not body.title or not body.title.strip():
@@ -97,7 +100,9 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
 async def delete_task(
+    request: Request,
     task_id: int,
     force: bool = False,
     db: AsyncSession = Depends(get_db)
@@ -163,7 +168,8 @@ async def delete_task(
 
 
 @router.post("/{task_id}/complete", response_model=TaskOut)
-async def complete_task(task_id: int, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def complete_task(request: Request, task_id: int, db: AsyncSession = Depends(get_db)):
     """Complete/un-complete task"""
     t = (
         (await db.execute(select(Task).where(Task.id==task_id)))
@@ -182,8 +188,97 @@ async def complete_task(task_id: int, db: AsyncSession = Depends(get_db)):
     return TaskOut.model_validate(t, from_attributes=True)
 
 
+@router.patch("/{task_id}", response_model=TaskOut)
+@limiter.limit("30/minute")
+async def patch_task(
+    request: Request,
+    task_id: int,
+    body: TaskPatch,
+    db: AsyncSession = Depends(get_db),
+):
+    """Partially update a task. Only fields present in the request body are applied."""
+    t = (
+        (await db.execute(select(Task).where(Task.id == task_id)))
+        .scalar_one_or_none()
+    )
+    if not t:
+        raise HTTPException(404, "Task not found")
+
+    provided = body.model_fields_set
+
+    try:
+        if "title" in provided:
+            t.title = body.title.strip()
+
+        if "description" in provided:
+            t.description = body.description
+
+        if "due_at" in provided:
+            if body.due_at is not None:
+                if not verify_timestamp(str(body.due_at)):
+                    raise HTTPException(400, "Invalid due_at timestamp")
+                t.due_at = datetime_to_pendulum(body.due_at)
+            else:
+                t.due_at = None
+
+        if "status" in provided:
+            t.status = body.status
+
+        if "category_id" in provided:
+            if body.category_id is not None:
+                cat = (
+                    await db.execute(
+                        select(Category).where(Category.id == body.category_id)
+                    )
+                ).scalar_one_or_none()
+                if not cat:
+                    raise HTTPException(
+                        400,
+                        f"Category with ID {body.category_id} does not exist",
+                    )
+                t.category_id = body.category_id
+            else:
+                t.category_id = None
+
+        if "tag_ids" in provided:
+            if body.tag_ids is not None:
+                tags = (
+                    await db.execute(
+                        select(Tag).where(Tag.id.in_(body.tag_ids))
+                    )
+                ).scalars().all()
+                found_ids = {tg.id for tg in tags}
+                missing = set(body.tag_ids) - found_ids
+                if missing:
+                    raise HTTPException(
+                        400, f"Tags with IDs {sorted(missing)} do not exist"
+                    )
+                t.tags = list(tags)
+            else:
+                t.tags = []
+
+        await db.commit()
+        await db.refresh(t, ["tags", "category"])
+        return TaskOut.model_validate(t, from_attributes=True)
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(400, "Data integrity error")
+    except DatabaseError:
+        await db.rollback()
+        raise HTTPException(500, "Database operation failed")
+    except Exception:
+        await db.rollback()
+        raise HTTPException(500, "Internal server error")
+
+
 @router.patch("/{task_id}/description", response_model=TaskOut)
+@limiter.limit("30/minute")
 async def set_description(
+    request: Request,
     task_id: int,
     body: TaskPatchDescription,
     db: AsyncSession = Depends(get_db),
@@ -201,7 +296,9 @@ async def set_description(
 
 
 @router.patch("/{task_id}/due", response_model=TaskOut)
+@limiter.limit("30/minute")
 async def set_due(
+    request: Request,
     task_id: int,
     body: TaskPatchDue,
     db: AsyncSession = Depends(get_db),
@@ -228,7 +325,9 @@ async def set_due(
 
 
 @router.post("/{task_id}/tags")
+@limiter.limit("30/minute")
 async def add_tags(
+    request: Request,
     task_id: int,
     body: AddTags,
     db: AsyncSession = Depends(get_db),
@@ -244,7 +343,6 @@ async def add_tags(
         .scalars()
         .all()
     )
-    print(f"{tags = }")
     for tg in tags:
         if tg not in t.tags:
             t.tags.append(tg)
@@ -255,8 +353,39 @@ async def add_tags(
     }
 
 
+@router.delete("/{task_id}/tags/{tag_id}")
+@limiter.limit("30/minute")
+async def remove_tag_from_task(
+    request: Request,
+    task_id: int,
+    tag_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a specific tag from a task. The tag itself is not deleted."""
+    t = (
+        (await db.execute(select(Task).where(Task.id == task_id)))
+        .scalar_one_or_none()
+    )
+    if not t:
+        raise HTTPException(404, "Task not found")
+    matching = [tg for tg in t.tags if tg.id == tag_id]
+    if not matching:
+        raise HTTPException(
+            404,
+            f"Tag {tag_id} is not associated with task {task_id}",
+        )
+    t.tags.remove(matching[0])
+    await db.commit()
+    return {
+        "ok": True,
+        "tag_ids": [x.id for x in t.tags],
+    }
+
+
 @router.get("", response_model=List[TaskOut])
+@limiter.limit("120/minute")
 async def list_tasks(
+    request: Request,
     q: Optional[str] = None,
     tag: Optional[int] = None,
     overdue_only: bool = False,
@@ -278,7 +407,7 @@ async def list_tasks(
             )
         )
     if overdue_only:
-        now_ts = now("America/Santiago")
+        now_ts = now(settings_cache.timezone)
         filters.append(Task.due_at.is_not(None))
         filters.append(Task.due_at < now_ts)
     if category:
@@ -294,17 +423,36 @@ async def list_tasks(
 
 
 @router.get("/all", response_model=List[TaskOut])
+@limiter.limit("120/minute")
 async def list_all(
+    request: Request,
     q: Optional[str] = None,
     tag: Optional[int] = None,
     overdue_only: bool = False,
     db: AsyncSession = Depends(get_db)
 ):
-    return await list_tasks(q=q, tag=tag, overdue_only=overdue_only, db=db)  # same filters
+    return await list_tasks(request=request, q=q, tag=tag, overdue_only=overdue_only, db=db)
+
+
+@router.get("/overdue", response_model=List[TaskOut])
+@limiter.limit("120/minute")
+async def list_overdue(request: Request, db: AsyncSession = Depends(get_db)):
+    """Return all non-completed tasks whose due date is in the past."""
+    now_ts = now(settings_cache.timezone)
+    stmt = (
+        select(Task)
+        .where(Task.due_at.is_not(None))
+        .where(Task.due_at < now_ts)
+        .where(Task.status != StatusEnum.completed)
+        .order_by(Task.due_at.asc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [TaskOut.model_validate(x, from_attributes=True) for x in rows]
 
 
 @router.get("/search", response_model=List[TaskOut])
-async def search(q: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("120/minute")
+async def search(request: Request, q: str, db: AsyncSession = Depends(get_db)):
     pattern = f"%{q}%"
     stmt = (
         select(Task)
@@ -315,12 +463,14 @@ async def search(q: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/next", response_model=List[TaskOut])
+@limiter.limit("120/minute")
 async def next_window(
+    request: Request,
     days: Optional[int] = None,
     hours: Optional[int] = 48,
     db: AsyncSession = Depends(get_db),
 ):
-    now_ts = now("America/Santiago")
+    now_ts = now(settings_cache.timezone)
     if days is None and hours is None:  # Fixed condition
         raise HTTPException(400, "Must specify either days or hours")  # Fixed status code
     # Calculate horizon based on provided parameters

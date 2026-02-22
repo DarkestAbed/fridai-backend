@@ -1,6 +1,6 @@
 # app/routers/categories.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
 from app.dependencies import get_db
+from app.limiter import limiter
 from app.models import Category, Task, StatusEnum
 from app.schemas import CategoryCreate, CategoryOut, TaskOut
 
@@ -16,7 +17,9 @@ router = APIRouter()
 
 
 @router.post("", response_model=CategoryOut)
+@limiter.limit("30/minute")
 async def create_category(
+    request: Request,
     body: CategoryCreate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -60,7 +63,9 @@ async def create_category(
 
 
 @router.get("", response_model=List[CategoryOut])
+@limiter.limit("120/minute")
 async def list_categories(
+    request: Request,
     q: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -79,7 +84,9 @@ async def list_categories(
 
 
 @router.get("/{category_id}/tasks", response_model=List[TaskOut])
+@limiter.limit("120/minute")
 async def tasks_by_category(
+    request: Request,
     category_id: int,
     show_completed: bool = True,
     db: AsyncSession = Depends(get_db),
@@ -92,7 +99,9 @@ async def tasks_by_category(
 
 
 @router.delete("/{category_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
 async def delete_category(
+    request: Request,
     category_id: int,
     reassign_to: Optional[int] = None,
     force: bool = False,
@@ -157,7 +166,8 @@ async def delete_category(
                 )
                 tasks_to_update = (await db.execute(update_stmt)).scalars().all()
                 for task in tasks_to_update:
-                    task.category_id = reassign_to
+                    task.category = target_category
+                await db.flush()
         # Store category info for response
         category_info = {
             "id": category.id,

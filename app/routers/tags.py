@@ -1,6 +1,6 @@
 # app/routrs/tags.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
 from app.dependencies import get_db
+from app.limiter import limiter
 from app.models import Tag, Task, TaskTags, StatusEnum
 from app.schemas import TagCreate, TagOut, TaskOut
 
@@ -16,7 +17,8 @@ router = APIRouter()
 
 
 @router.post("", response_model=TagOut, status_code=status.HTTP_201_CREATED)
-async def create_tag(body: TagCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def create_tag(request: Request, body: TagCreate, db: AsyncSession = Depends(get_db)):
     t = Tag(name=body.name)
     db.add(t)
     try:
@@ -32,7 +34,9 @@ async def create_tag(body: TagCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("", response_model=List[TagOut])
+@limiter.limit("120/minute")
 async def list_tags(
+    request: Request,
     q: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -45,7 +49,9 @@ async def list_tags(
 
 
 @router.get("/{tag_id}/tasks", response_model=List[TaskOut])
+@limiter.limit("120/minute")
 async def tasks_by_tag(
+    request: Request,
     tag_id: int,
     show_completed: bool = True,
     db: AsyncSession = Depends(get_db)
@@ -64,7 +70,9 @@ async def tasks_by_tag(
 
 
 @router.delete("/{tag_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
 async def delete_tag(
+    request: Request,
     tag_id: int,
     force: bool = False,
     db: AsyncSession = Depends(get_db)

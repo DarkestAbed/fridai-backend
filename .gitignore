@@ -1,6 +1,10 @@
 # folders
+.pytest_cache/
 .venv/
 __pycache__/
 # files
 .python-version
 uv.lock
+*.png
+*.md
+*.txt

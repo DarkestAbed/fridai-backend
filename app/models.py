@@ -16,6 +16,7 @@ from sqlalchemy import (
 from typing import List, Optional
 
 from app.db import Base
+from app.utils.tz import get_tz
 
 
 class StatusEnum(str, PyEnum):
@@ -76,13 +77,13 @@ class Task(Base):
     )
     created_at: Mapped[PendulumDT] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: now("America/Santiago"),
+        default=lambda: now(get_tz()),
         nullable=False,
     )
     updated_at: Mapped[PendulumDT] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: now("America/Santiago"),
-        onupdate=lambda: now("America/Santiago"),
+        default=lambda: now(get_tz()),
+        onupdate=lambda: now(get_tz()),
         nullable=False,
     )
     category_id: Mapped[Optional[int]] = mapped_column(
@@ -115,7 +116,7 @@ class Attachment(Base):
     url: Mapped[str] = mapped_column(Text())
     created_at: Mapped[PendulumDT] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: now("America/Santiago"),
+        default=lambda: now(get_tz()),
         nullable=False,
     )
     task: Mapped[Task] = relationship(
@@ -154,7 +155,7 @@ class NotificationLog(Base):
     payload: Mapped[str] = mapped_column(Text())
     sent_at: Mapped[PendulumDT] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: now("America/Santiago"),
+        default=lambda: now(get_tz()),
         nullable=False,
     )
 
@@ -175,11 +176,12 @@ class AppSettings(Base):
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     near_due_hours: Mapped[int] = mapped_column(default=24)
     scheduler_interval_seconds: Mapped[int] = mapped_column(default=60)
-    apprise_urls: Mapped[str] = mapped_column(Text(), default="")
+    ntfy_topics: Mapped[str] = mapped_column(Text(), default="")
+    language: Mapped[str] = mapped_column(String(16), default="en")
 
-    def apprise_list(self) -> list[str]:
-        return [ 
+    def ntfy_topic_list(self) -> list[str]:
+        return [
             x.strip()
-            for x in (self.apprise_urls or "").splitlines()
+            for x in (self.ntfy_topics or "").splitlines()
             if x.strip()
         ]

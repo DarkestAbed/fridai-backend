@@ -1,10 +1,11 @@
 # app/routers/relationships.py
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.limiter import limiter
 from app.models import TaskRelationship
 from app.schemas import RelationshipCreate
 
@@ -13,7 +14,9 @@ router = APIRouter()
 
 
 @router.post("")
+@limiter.limit("30/minute")
 async def create_relationship(
+    request: Request,
     body: RelationshipCreate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -29,7 +32,8 @@ async def create_relationship(
 
 
 @router.get("")
-async def list_relationships(task_id: int, db: AsyncSession = Depends(get_db)):
+@limiter.limit("120/minute")
+async def list_relationships(request: Request, task_id: int, db: AsyncSession = Depends(get_db)):
     rows = (
         (
             await db.execute(

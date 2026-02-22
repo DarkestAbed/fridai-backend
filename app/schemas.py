@@ -90,6 +90,49 @@ class TaskPatchDue(ExtendedBase):
     due_at: Optional[datetime] = None
 
 
+class TaskPatch(ExtendedBase):
+    """Schema for partial task updates. Only explicitly-provided fields are applied."""
+    title: Optional[constr(min_length=1, max_length=200, strip_whitespace=True)] = None
+    description: Optional[constr(max_length=5000, strip_whitespace=True)] = None
+    due_at: Optional[datetime] = None
+    category_id: Optional[int] = None
+    status: Optional[StatusEnum] = None
+    tag_ids: Optional[List[int]] = None
+
+    @field_validator('title')
+    def validate_title(cls, v):
+        if v is not None:
+            if not v or v.isspace():
+                raise ValueError('Title cannot be empty or only whitespace')
+            if search(r'<[^>]*>', v):
+                raise ValueError('Title cannot contain HTML tags')
+        return v
+
+    @field_validator('description')
+    def validate_description(cls, v):
+        if v is not None:
+            if search(r'<script[^>]*>.*?</script>', v, IGNORECASE | DOTALL):
+                raise ValueError('Description cannot contain script tags')
+        return v
+
+    @field_validator('category_id')
+    def validate_category_id(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('Category ID must be positive')
+        return v
+
+    @field_validator('tag_ids')
+    def validate_tag_ids(cls, v):
+        if v is not None:
+            if len(v) > 50:
+                raise ValueError('Too many tags (maximum 50)')
+            if any(tag_id <= 0 for tag_id in v):
+                raise ValueError('All tag IDs must be positive')
+            if len(set(v)) != len(v):
+                raise ValueError('Duplicate tag IDs not allowed')
+        return v
+
+
 class AddTags(ExtendedBase):
     tag_ids: List[int]
 
@@ -168,7 +211,8 @@ class SettingsOut(ExtendedBase):
     notifications_enabled: bool = True
     near_due_hours: int = 24
     scheduler_interval_seconds: int = 60
-    apprise_urls: str = ""
+    ntfy_topics: str = ""
+    language: str = "en"
 
 
 class SettingsPatch(ExtendedBase):
@@ -177,4 +221,5 @@ class SettingsPatch(ExtendedBase):
     notifications_enabled: bool = True
     near_due_hours: int = 24
     scheduler_interval_seconds: int = 60
-    apprise_urls: str = ""
+    ntfy_topics: str = ""
+    language: str = "en"

@@ -1,7 +1,10 @@
 # app/services/notifications.py
 
 from __future__ import annotations
-from apprise import Apprise
+import math
+
+import httpx
+import pendulum
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -44,18 +47,28 @@ def _render(template: str, **kw) -> str:
 
 
 async def _send_all(payload: str, subject: str):
-    urls = [ 
-        u 
-        for u in (settings_cache.apprise_urls or "").splitlines()
+    topics = [
+        u.strip()
+        for u in (settings_cache.ntfy_topics or "").splitlines()
         if u.strip()
     ]
-    if not urls or not settings_cache.notifications_enabled:
+    if not topics or not settings_cache.notifications_enabled:
         return []
-    app = Apprise()
-    for u in urls:
-        app.add(u.strip())
-    await app.async_notify(body=payload, title=subject)
-    return urls
+    sent = []
+    async with httpx.AsyncClient(timeout=10) as client:
+        for topic_url in topics:
+            resp = await client.post(
+                topic_url,
+                content=payload,
+                headers={
+                    "Title": subject,
+                    "Markdown": "yes",
+                    "Priority": "default",
+                },
+            )
+            resp.raise_for_status()
+            sent.append(topic_url)
+    return sent
 
 
 async def trigger_due_soon(db: AsyncSession) -> int:
@@ -82,12 +95,19 @@ async def trigger_due_soon(db: AsyncSession) -> int:
     tasks = (await db.execute(stmt)).scalars().all()
     tmpl = await _get_template(db, "due_soon", DEFAULT_DUE_SOON)
     sent = 0
+    tz = settings_cache.timezone or "UTC"
+    now = pendulum.now(tz)
     for t in tasks:
+        due = t.due_at
+        if due and due.tzinfo is None:
+            due = pendulum.instance(due, tz=tz)
+        remaining_seconds = (due - now).total_seconds() if due else 0
+        remaining_hours = math.ceil(remaining_seconds / 3600)
         payload = _render(
             tmpl,
             task_title=t.title,
             due_at=t.due_at,
-            remaining="<= %sh" % hours,
+            remaining=f"{remaining_hours}h",
         )
         urls = await _send_all(payload, subject="Task due soon")
         for dest in urls:
@@ -105,23 +125,39 @@ async def trigger_due_soon(db: AsyncSession) -> int:
 
 
 async def trigger_overdue(db: AsyncSession) -> int:
+    # Skip tasks already notified as overdue in the last hour
+    recently_notified = (
+        select(NotificationLog.task_id)
+        .where(
+            NotificationLog.kind == "overdue",
+            NotificationLog.sent_at >= func.datetime(func.now(), "-1 hour"),
+        )
+    )
     stmt = (
         select(Task)
         .where(
             Task.status!="completed",
             Task.due_at.is_not(None),
             Task.due_at < func.now(),
+            Task.id.not_in(recently_notified),
         )
     )
     tasks = (await db.execute(stmt)).scalars().all()
     tmpl = await _get_template(db, "overdue", DEFAULT_OVERDUE)
     sent = 0
+    tz = settings_cache.timezone or "UTC"
+    now = pendulum.now(tz)
     for t in tasks:
+        due = t.due_at
+        if due and due.tzinfo is None:
+            due = pendulum.instance(due, tz=tz)
+        overdue_seconds = (now - due).total_seconds() if due else 0
+        overdue_hours = math.ceil(overdue_seconds / 3600)
         payload = _render(
             tmpl,
             task_title=t.title,
             due_at=t.due_at,
-            overdue_by=">0h",
+            overdue_by=f"{overdue_hours}h",
         )
         urls = await _send_all(payload, subject="Task overdue")
         for dest in urls:

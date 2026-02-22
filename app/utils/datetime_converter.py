@@ -11,34 +11,44 @@ def pendulum_to_datetime(dt: PendulumDT) -> Optional[datetime]:
     """Convert Pendulum DateTime to standard Python datetime."""
     if dt is None:
         return None
-    # print(f"{dt.to_datetime() = }")                             # type: ignore
     return dt.to_datetime()                                     # type: ignore
 
 
-def datetime_to_pendulum(dt: datetime) -> Optional[PendulumDT]:
-    """Convert standard Python datetime to Pendulum DateTime."""
+def datetime_to_pendulum(dt: datetime, tz: Optional[str] = None) -> Optional[PendulumDT]:
+    """Convert standard Python datetime to Pendulum DateTime.
+
+    Args:
+        dt: The datetime to convert.
+        tz: Timezone string. Defaults to settings_cache.timezone at call time.
+    """
     if dt is None:
         return None
+    if tz is None:
+        from app.utils.tz import get_tz
+        tz = get_tz()
     if dt.tzinfo is None:
-        # Assume naive datetime is in Santiago timezone
-        return pendulum.instance(dt, tz="America/Santiago")
+        # Assume naive datetime is in the configured timezone
+        return pendulum.instance(dt, tz=tz)
     return pendulum.instance(dt)
 
 
-def verify_timestamp(dts: str) -> bool:
-    """Verify if input str timestamp is valid in datetime or Pendulum"""
+def verify_timestamp(dts: str, tz: Optional[str] = None) -> bool:
+    """Verify if input str timestamp is valid in datetime or Pendulum."""
     if dts is None or dts == "None" or dts == "null":
         return True
+    if tz is None:
+        from app.utils.tz import get_tz
+        tz = get_tz()
     error_fg: int = 0
     # pendulum check
     try:
-        _ = pendulum.parse(dts, tz="America/Santiago")
-    except:
+        _ = pendulum.parse(dts, tz=tz)
+    except Exception:
         error_fg += 1
     # datetime check
     try:
         _ = datetime.strptime(dts, "%Y-%m-%dT%H:%M:%S.%f")
-    except:
+    except Exception:
         error_fg += 1
     # checking results
     return error_fg < 2

@@ -2,17 +2,24 @@
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from loguru import logger
 from sqlalchemy.exc import IntegrityError, DatabaseError
 
 
 class DatabaseExceptionHandler:
-    """Centralized database exception handling."""    
+    """Centralized database exception handling."""
     @staticmethod
     async def integrity_error_handler(
         request: Request,
         exc: IntegrityError,
     ) -> JSONResponse:
         """Handle database integrity constraint violations."""
+        logger.warning(
+            "IntegrityError on {method} {path}: {err}",
+            method=request.method,
+            path=request.url.path,
+            err=str(exc.orig),
+        )
         error_msg = str(exc.orig)
         # Parse common constraint violations
         if "UNIQUE constraint failed" in error_msg:
@@ -52,6 +59,12 @@ class DatabaseExceptionHandler:
     @staticmethod
     async def database_error_handler(request: Request, exc: DatabaseError) -> JSONResponse:
         """Handle general database errors."""
+        logger.error(
+            "DatabaseError on {method} {path}: {err}",
+            method=request.method,
+            path=request.url.path,
+            err=str(exc),
+        )
         return JSONResponse(
             status_code=500,
             content={"detail": "Database operation failed"}
